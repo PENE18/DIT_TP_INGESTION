@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "PostgreSQL Source (source_db)",
+      "Group": "POC Data Engineering",
+      "Host": "postgres-source",
+      "Port": 5432,
+      "MaintenanceDB": "source_db",
+      "Username": "admin",
+      "Password": "admin123",
+      "SSLMode": "prefer",
+      "Comment": "Base operationnelle source - customers, products, orders"
+    }
+  }
+}

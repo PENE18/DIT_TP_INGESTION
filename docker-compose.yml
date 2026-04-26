@@ -1,0 +1,388 @@
+version: "3.9"
+
+services:
+
+  # ─────────────────────────────────────────────────────────────
+  # SOURCE: PostgreSQL (simule une base opérationnelle)
+  # ─────────────────────────────────────────────────────────────
+  postgres-source:
+    image: postgres:15
+    container_name: postgres-source
+    environment:
+      POSTGRES_DB: source_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - pg_source_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d source_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # WAREHOUSE: PostgreSQL (destination finale)
+  # ─────────────────────────────────────────────────────────────
+  # postgres-warehouse:
+  #   image: postgres:15
+  #   container_name: postgres-warehouse
+  #   environment:
+  #     POSTGRES_DB: warehouse_db
+  #     POSTGRES_USER: admin
+  #     POSTGRES_PASSWORD: admin123
+  #   ports:
+  #     - "5433:5432"
+  #   volumes:
+  #     - ./postgres/warehouse-init:/docker-entrypoint-initdb.d
+  #     - pg_warehouse_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U admin -d warehouse_db"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   networks:
+  #     - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # PGADMIN: interface web pour PostgreSQL source + warehouse
+  # ─────────────────────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@poc-data.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+      # postgres-warehouse:
+      #   condition: service_healthy
+    networks:
+      - poc-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/misc/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ─────────────────────────────────────────────────────────────
+  # LAKEHOUSE: MinIO (stockage objet compatible S3)
+  # ─────────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # INIT MinIO: cree les buckets bronze / silver / gold
+  # ─────────────────────────────────────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Attente MinIO...';
+      sleep 5;
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb local/bronze --ignore-existing;
+      mc mb local/silver --ignore-existing;
+      mc mb local/gold   --ignore-existing;
+      mc mb local/iceberg --ignore-existing;
+      echo 'Buckets crees: bronze, silver, gold, iceberg';
+      mc ls local;
+      "
+    networks:
+      - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # ORCHESTRATION: Apache NiFi
+  # ─────────────────────────────────────────────────────────────
+  # nifi:
+  #   image: apache/nifi:1.25.0
+  #   container_name: nifi
+  #   environment:
+  #     - NIFI_WEB_HTTP_PORT=8080
+  #     - NIFI_WEB_HTTPS_PORT=
+  #     - NIFI_SECURITY_USER_LOGIN_IDENTITY_PROVIDER=single-user-provider
+  #     - SINGLE_USER_CREDENTIALS_USERNAME=admin
+  #     - SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB
+  #     - NIFI_SENSITIVE_PROPS_KEY=12345678901234567890123456789012
+  #     - NIFI_JVM_HEAP_INIT=1g
+  #     - NIFI_JVM_HEAP_MAX=2g
+  #     - NIFI_WEB_PROXY_HOST=localhost:8080
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - nifi_data:/opt/nifi/nifi-current/conf
+  #     - nifi_flowfile:/opt/nifi/nifi-current/flowfile_repository
+  #     - nifi_content:/opt/nifi/nifi-current/content_repository
+  #     - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
+  #     - nifi_state:/opt/nifi/nifi-current/state
+  #     - nifi_logs:/opt/nifi/nifi-current/logs
+  #     - ./data:/opt/nifi/data
+  #     - ./nifi/scripts:/opt/nifi/custom-scripts
+  #     - ./nifi/templates:/opt/nifi/nifi-current/conf/templates
+  #     - ./nifi/drivers:/opt/nifi/nifi-current/drivers
+  #   depends_on:
+  #     postgres-source:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8080/nifi-api/flow/about | grep -qE '^(200|401)$'"]
+  #     interval: 30s
+  #     timeout: 15s
+  #     retries: 20
+  #     start_period: 120s
+  #   networks:
+  #     - poc-net
+
+  nifi:
+    image: apache/nifi:2.4.0
+    container_name: nifi
+    environment:
+      - SINGLE_USER_CREDENTIALS_USERNAME=admin
+      - SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB
+      - NIFI_SENSITIVE_PROPS_KEY=12345678901234567890123456789012
+      - NIFI_JVM_HEAP_INIT=1g
+      - NIFI_JVM_HEAP_MAX=2g
+      - NIFI_WEB_PROXY_HOST=localhost:8443
+    ports:
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -o /dev/null -w '%{http_code}' -k https://localhost:8443/nifi-api/flow/about | grep -qE '^(200|401)$'"]
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 120s
+    volumes:
+      - nifi_data:/opt/nifi/nifi-current/conf
+      - nifi_flowfile:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance:/opt/nifi/nifi-current/provenance_repository
+      - nifi_state:/opt/nifi/nifi-current/state
+      - nifi_logs:/opt/nifi/nifi-current/logs
+      - ./data:/opt/nifi/data
+      - ./nifi/scripts:/opt/nifi/custom-scripts
+      - ./nifi/templates:/opt/nifi/nifi-current/conf/templates
+      - ./nifi/drivers:/opt/nifi/nifi-current/drivers
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # API MOCK: simule une API REST externe (FastAPI)
+  # ─────────────────────────────────────────────────────────────
+  api-mock:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: api-mock
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # SPARK + ICEBERG: traitement Bronze -> Silver -> Gold
+  # ─────────────────────────────────────────────────────────────
+  # spark-iceberg:
+  #   image: tabulario/spark-iceberg
+  #   container_name: spark-iceberg
+  #   environment:
+  #     AWS_ACCESS_KEY_ID: minioadmin
+  #     AWS_SECRET_ACCESS_KEY: minioadmin123
+  #     AWS_REGION: us-east-1
+  #   ports:
+  #     - "8888:8888"
+  #     - "4040:4040"
+  #     - "10000:10000"
+  #   volumes:
+  #     - ./spark/notebooks:/home/iceberg/notebooks
+  #     - ./spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+  #   depends_on:
+  #     minio-init:
+  #       condition: service_completed_successfully
+  #     nessie:
+  #       condition: service_healthy
+  #   networks:
+  #     - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # ICEBERG CATALOG: Project Nessie (Git-like catalog for Iceberg)
+  # ─────────────────────────────────────────────────────────────
+  # nessie:
+  #   image: ghcr.io/projectnessie/nessie:0.90.4
+  #   container_name: nessie
+  #   ports:
+  #     - "19120:19120"
+  #   environment:
+  #     QUARKUS_HTTP_PORT: 19120
+  #     NESSIE_VERSION_STORE_TYPE: ROCKSDB
+  #   volumes:
+  #     - nessie_data:/nessie/data
+  #   depends_on:
+  #     minio-init:
+  #       condition: service_completed_successfully
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:19120/api/v2/config"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 60s
+  #   networks:
+  #     - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # QUERY ENGINE: Dremio (SQL sur MinIO/Iceberg/Nessie)
+  # ─────────────────────────────────────────────────────────────
+  # dremio:
+  #   image: dremio/dremio-oss:latest
+  #   container_name: dremio
+  #   ports:
+  #     - "9047:9047"
+  #     - "31010:31010"
+  #     - "32010:32010"
+  #   volumes:
+  #     - dremio_data:/opt/dremio/data
+  #     - ./dremio/dremio.conf:/opt/dremio/conf/dremio.conf
+  #   environment:
+  #     - DREMIO_JAVA_SERVER_EXTRA_OPTS=-Dpaths.dist=file:///opt/dremio/data/dist
+  #     - DREMIO_JAVA_EXTRA_OPTS=-Xmx4g -XX:MaxDirectMemorySize=4g
+  #   depends_on:
+  #     minio-init:
+  #       condition: service_completed_successfully
+  #     nessie:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-sf", "http://localhost:9047"]
+  #     interval: 30s
+  #     timeout: 15s
+  #     retries: 10
+  #     start_period: 120s
+  #   networks:
+  #     - poc-net
+
+  # ─────────────────────────────────────────────────────────────
+  # PIPELINE RUNNER: scripts Python pour automatiser les pipelines
+  # ─────────────────────────────────────────────────────────────
+  # pipeline-runner:
+  #   build:
+  #     context: ./scripts
+  #     dockerfile: Dockerfile
+  #   container_name: pipeline-runner
+  #   environment:
+  #     POSTGRES_SOURCE_HOST: postgres-source
+  #     POSTGRES_SOURCE_PORT: "5432"
+  #     POSTGRES_SOURCE_DB: source_db
+  #     POSTGRES_SOURCE_USER: admin
+  #     POSTGRES_SOURCE_PASSWORD: admin123
+  #     # POSTGRES_WH_HOST: postgres-warehouse
+  #     # POSTGRES_WH_PORT: "5432"
+  #     # POSTGRES_WH_DB: warehouse_db
+  #     # POSTGRES_WH_USER: admin
+  #     # POSTGRES_WH_PASSWORD: admin123
+  #     MINIO_ENDPOINT: http://minio:9000
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin123
+  #     API_URL: http://api-mock:8000
+  #   volumes:
+  #     - ./data:/app/data
+  #     - ./scripts:/app/scripts
+  #   depends_on:
+  #     postgres-source:
+  #       condition: service_healthy
+  #     # postgres-warehouse:
+  #     #   condition: service_healthy
+  #     minio-init:
+  #       condition: service_completed_successfully
+  #     api-mock:
+  #       condition: service_healthy
+  #   networks:
+  #     - poc-net
+  #   command: ["python", "/app/scripts/run_all_pipelines.py"]
+
+  # ─────────────────────────────────────────────────────────────
+  # DREMIO SETUP: configure source MinIO + Nessie automatiquement
+  # ─────────────────────────────────────────────────────────────
+  # dremio-setup:
+  #   build:
+  #     context: ./dremio/setup
+  #     dockerfile: Dockerfile
+  #   container_name: dremio-setup
+  #   environment:
+  #     DREMIO_URL:       http://dremio:9047
+  #     DREMIO_USER:      admin
+  #     DREMIO_PASS:      "Admin1234!"
+  #     DREMIO_EMAIL:     admin@poc.local
+  #     MINIO_ENDPOINT:   http://minio:9000
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin123
+  #   depends_on:
+  #     dremio:
+  #       condition: service_healthy
+  #     pipeline-runner:
+  #       condition: service_completed_successfully
+  #   networks:
+  #     - poc-net
+
+volumes:
+  pg_source_data:
+  # pg_warehouse_data:
+  minio_data:
+  nifi_data:
+  nifi_flowfile:
+  nifi_content:
+  nifi_provenance:
+  nifi_state:
+  nifi_logs:
+  # dremio_data:
+  # nessie_data:
+  pgadmin_data:
+
+networks:
+  poc-net:
+    driver: bridge

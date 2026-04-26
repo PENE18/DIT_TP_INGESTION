@@ -1,0 +1,40 @@
+<!-- 
+  TEMPLATE NIFI: PostgreSQL → MinIO Bronze
+  
+  Import dans NiFi:
+  1. Ouvre http://localhost:8080
+  2. Login: admin / adminadminadmin
+  3. Dans le canvas: drag "Template" depuis la toolbar
+  4. Upload ce fichier XML
+  5. Configure les Controller Services (DBCPConnectionPool, etc.)
+  
+  OU UTILISE le script nifi/scripts/setup_nifi_flows.sh
+  pour créer les flows via l'API REST de NiFi
+-->
+<template encoding-version="1.1">
+  <description>POC Data Engineering - PostgreSQL to MinIO Bronze</description>
+  <name>PostgreSQL_to_Bronze</name>
+  <!-- 
+    Structure du flow:
+    
+    [QueryDatabaseTable] 
+        → postgres-source:5432 / source_db
+        → Tables: customers, products, orders
+    
+    [ConvertAvroToJSON]
+        → Convertit le format Avro de QueryDatabaseTable en JSON
+    
+    [SplitJson]
+        → Sépare le tableau JSON en FlowFiles individuels
+    
+    [MergeContent]
+        → Regroupe en batch (100 records)
+    
+    [PutS3Object]
+        → MinIO: http://minio:9000
+        → Bucket: bronze
+        → Prefix: postgres/{table_name}/
+        → Access Key: minioadmin
+        → Secret Key: minioadmin123
+    -->
+</template>
