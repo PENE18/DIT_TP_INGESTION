@@ -1,6 +1,10 @@
 # 🏗️ POC Data Engineering — INGESTION NIFI
 
 > **Stack complète locale** : Apache NiFi · PostgreSQL · MinIO · Apache Iceberg · REST API · Google Drive (CSV) · Docker
+> This project demonstrates a modern data ingestion architecture built using open-source data engineering tools.
+The goal is to simulate how a real-world data platform ingests data from multiple sources, stores raw data in a data lake, and prepares it for further analytics.
+
+The platform integrates several technologies including Apache NiFi, PostgreSQL, MinIO, Docker, and REST APIs to create an end-to-end ingestion pipeline.
 
 ---
 
