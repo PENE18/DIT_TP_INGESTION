@@ -31,13 +31,12 @@
 
 ```bash
 # 1. Clone / dézippe le projet
-cd poc-data-engineering
+cd DIT_TP_INGESTION
 
 # 2. Lance tout
-chmod +x start.sh && ./start.sh
+docker compose up -d
 
-# 3. Vérifie les données du warehouse
-chmod +x scripts/query_warehouse.sh && ./scripts/query_warehouse.sh
+
 ```
 
 **C'est tout.** Le script `start.sh` gère tout automatiquement.
