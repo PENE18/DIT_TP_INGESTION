@@ -100,8 +100,8 @@ Open the following URL in your browser:
 http://localhost:5050
 
 Email :admin@poc-data.com
-
 Password: admin123
+
 ---
 
 ## 🔄 Les 6 pipelines en détail
