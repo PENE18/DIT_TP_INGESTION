@@ -1,4 +1,4 @@
-# 🏗️ POC Data Engineering — Architecture Médaillon
+# 🏗️ POC Data Engineering — INGESTION NIFI
 
 > **Stack complète locale** : Apache NiFi · PostgreSQL · MinIO · Apache Iceberg · REST API · Google Drive (CSV) · Docker
 
