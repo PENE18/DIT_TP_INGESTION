@@ -89,6 +89,20 @@ poc-data-engineering/
 | 🪣 **MinIO Console** | http://localhost:9001 | minioadmin / minioadmin123 |
 | 🌐 **API Mock (Swagger)** | http://localhost:8000/docs | — |
 
+## 🗄️ PostgreSQL Management (pgAdmin)
+
+The project includes pgAdmin, a web-based interface used to manage and explore the PostgreSQL source database.
+
+Access pgAdmin
+
+Open the following URL in your browser:
+
+http://localhost:5050
+Login Credentials
+Field	Value
+Email	admin@poc-data.com
+
+Password	admin123
 ---
 
 ## 🔄 Les 6 pipelines en détail
