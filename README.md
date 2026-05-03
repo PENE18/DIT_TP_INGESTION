@@ -98,11 +98,10 @@ Access pgAdmin
 Open the following URL in your browser:
 
 http://localhost:5050
-Login Credentials
-Field	Value
-Email	admin@poc-data.com
 
-Password	admin123
+Email :admin@poc-data.com
+
+Password: admin123
 ---
 
 ## 🔄 Les 6 pipelines en détail
